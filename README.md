@@ -43,19 +43,23 @@ source .venv/bin/activate
 
 ### 3. Install Dependencies
 
+**IMPORTANT:** You must install the dependencies before running the script!
+
 ```bash
 pip install -r requirements.txt
 ```
 
+This will install the `playwright` library required for browser automation.
+
 ### 4. Install Playwright Browsers
 
-After installing the Python package, you need to install the browser binaries:
+After installing the Python package, you **MUST** install the browser binaries:
 
 ```bash
 playwright install chromium
 ```
 
-This will download the Chromium browser that Playwright uses for automation.
+This will download the Chromium browser that Playwright uses for automation. This step is required and cannot be skipped!
 
 ### 5. Prepare Player IDs
 
@@ -139,18 +143,165 @@ If you can't activate the virtual environment:
 - **Windows**: Try `python -m venv .venv` again
 - **Linux/macOS**: Ensure you have `python3-venv` installed
 
-### Playwright Browser Not Found
+### Playwright Browser Installation Errors
 
-If you get browser-related errors:
+**Error: `playwright install chromium` fails or browser not found**
+
+#### For All Platforms:
+First, ensure playwright is installed:
+```bash
+pip list | grep playwright
+```
+
+If not installed, run:
+```bash
+pip install -r requirements.txt
+```
+
+Then try installing browsers again:
 ```bash
 playwright install chromium
 ```
 
+#### Linux-Specific Issues:
+
+**1. Permission Denied Error:**
+```bash
+# Try with user permissions (recommended)
+playwright install chromium
+
+# If that fails, you may need sudo (use cautiously)
+sudo playwright install chromium
+```
+
+**2. Missing System Dependencies:**
+Ubuntu/Debian users may need additional libraries:
+```bash
+# Install required system dependencies
+sudo apt-get update
+sudo apt-get install -y \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2
+
+# Then install chromium
+playwright install chromium
+```
+
+For Fedora/RHEL/CentOS:
+```bash
+sudo dnf install -y \
+    nss \
+    nspr \
+    atk \
+    at-spi2-atk \
+    cups-libs \
+    libdrm \
+    dbus-libs \
+    libxkbcommon \
+    libXcomposite \
+    libXdamage \
+    libXfixes \
+    libXrandr \
+    mesa-libgbm \
+    pango \
+    cairo \
+    alsa-lib
+
+playwright install chromium
+```
+
+**3. Command Not Found:**
+If `playwright` command is not found, use the Python module directly:
+```bash
+python -m playwright install chromium
+# OR
+python3 -m playwright install chromium
+```
+
+#### macOS-Specific Issues:
+
+**1. Command Not Found:**
+Use the Python module directly:
+```bash
+python3 -m playwright install chromium
+```
+
+**2. Security/Quarantine Issues:**
+macOS may block the browser. If you see security warnings:
+```bash
+# Install chromium
+python3 -m playwright install chromium
+
+# If blocked, allow it in System Preferences > Security & Privacy
+# Or use this command to remove quarantine attribute:
+xattr -cr ~/Library/Caches/ms-playwright/
+```
+
+**3. Rosetta 2 Required (Apple Silicon M1/M2/M3):**
+If you're on Apple Silicon and get architecture errors:
+```bash
+# Install Rosetta 2 if not already installed
+softwareupdate --install-rosetta
+
+# Then install chromium
+python3 -m playwright install chromium
+```
+
+#### Verification:
+
+After installation, verify it worked:
+```bash
+# Check installed browsers
+playwright install --help
+
+# Or verify programmatically
+python -c "from playwright.sync_api import sync_playwright; print('✓ Playwright ready!')"
+```
+
 ### Module Not Found Errors
 
-Ensure you've activated the virtual environment and installed dependencies:
+**Error: `ModuleNotFoundError: No module named 'playwright'`**
+
+This means you haven't installed the dependencies yet. Follow these steps:
+
+1. **Ensure virtual environment is activated**:
+   - Windows: You should see `(.venv)` at the start of your command prompt
+   - Linux/macOS: You should see `(.venv)` in your terminal prompt
+
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Install Playwright browsers**:
+   ```bash
+   playwright install chromium
+   ```
+
+4. **Verify installation**:
+   ```bash
+   pip list | grep playwright
+   ```
+   You should see `playwright` in the output.
+
+If you still get errors, try:
 ```bash
-pip install -r requirements.txt
+pip install --upgrade pip
+pip install -r requirements.txt --force-reinstall
 ```
 
 ### File Not Found: playerid.txt
