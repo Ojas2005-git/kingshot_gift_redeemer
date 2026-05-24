@@ -5,57 +5,108 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 import asyncio
 import os
 import time
-from queue import Queue
-from threading import Lock
+from datetime import datetime
+
+REDEEM_URL = "https://kingshot.net/gift-codes/redeem"
+
 
 class GiftRedeemerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Gift Code Redeemer - Parallel Processing")
-        self.root.geometry("700x500")
+        self.root.title("Kingshot Gift Code Redeemer - One-by-One")
+        self.root.geometry("750x560")
+        self.root.configure(bg="#1e1e2e")
 
-        # Gift Code Input
-        self.code_label = tk.Label(root, text="Enter Gift Code:", font=("Arial", 12))
-        self.code_label.pack(pady=10)
+        # ── Title ──────────────────────────────────────────────────────────
+        title = tk.Label(root, text="🎁 Kingshot Gift Code Redeemer",
+                         font=("Arial", 14, "bold"), fg="#cba6f7", bg="#1e1e2e")
+        title.pack(pady=(14, 2))
 
-        self.code_entry = tk.Entry(root, font=("Arial", 12), width=30)
-        self.code_entry.pack(pady=5)
+        subtitle = tk.Label(root, text="One-by-one redemption via kingshot.net/gift-codes/redeem",
+                            font=("Arial", 9), fg="#6c7086", bg="#1e1e2e")
+        subtitle.pack()
 
-        # Start Button
-        self.start_button = tk.Button(root, text="Start Redemption", font=("Arial", 12, "bold"), 
-                                      bg="#4CAF50", fg="white", command=self.start_process)
-        self.start_button.pack(pady=20)
+        # ── Gift Code Input ────────────────────────────────────────────────
+        frame = tk.Frame(root, bg="#1e1e2e")
+        frame.pack(pady=10)
 
-        # Log Area
-        self.log_area = scrolledtext.ScrolledText(root, width=80, height=20, font=("Courier", 9))
-        self.log_area.pack(pady=10)
+        tk.Label(frame, text="Gift Code:", font=("Arial", 11, "bold"),
+                 fg="#cdd6f4", bg="#1e1e2e").grid(row=0, column=0, padx=8, sticky="w")
 
-        # Thread-safe counters
+        self.code_entry = tk.Entry(frame, font=("Arial", 11), width=32,
+                                   bg="#313244", fg="#cdd6f4", insertbackground="#cdd6f4",
+                                   relief="flat", bd=4)
+        self.code_entry.grid(row=0, column=1, padx=8)
+
+        # ── Controls ───────────────────────────────────────────────────────
+        ctrl_frame = tk.Frame(root, bg="#1e1e2e")
+        ctrl_frame.pack(pady=6)
+
+        self.start_button = tk.Button(ctrl_frame, text="▶  Start Redemption",
+                                      font=("Arial", 11, "bold"),
+                                      bg="#a6e3a1", fg="#1e1e2e", activebackground="#94d4a0",
+                                      relief="flat", padx=16, pady=6,
+                                      command=self.start_process)
+        self.start_button.grid(row=0, column=0, padx=8)
+
+        self.stop_button = tk.Button(ctrl_frame, text="⏹  Stop",
+                                     font=("Arial", 11, "bold"),
+                                     bg="#f38ba8", fg="#1e1e2e", activebackground="#e07090",
+                                     relief="flat", padx=16, pady=6,
+                                     command=self.stop_process, state=tk.DISABLED)
+        self.stop_button.grid(row=0, column=1, padx=8)
+
+        # ── Progress label ─────────────────────────────────────────────────
+        self.progress_var = tk.StringVar(value="Ready")
+        self.progress_label = tk.Label(root, textvariable=self.progress_var,
+                                       font=("Arial", 10), fg="#89b4fa", bg="#1e1e2e")
+        self.progress_label.pack()
+
+        # ── Log Area ───────────────────────────────────────────────────────
+        log_frame = tk.Frame(root, bg="#1e1e2e")
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 14))
+
+        self.log_area = scrolledtext.ScrolledText(log_frame, width=90, height=20,
+                                                  font=("Courier", 9),
+                                                  bg="#181825", fg="#cdd6f4",
+                                                  insertbackground="#cdd6f4",
+                                                  relief="flat")
+        self.log_area.pack(fill=tk.BOTH, expand=True)
+
+        # colour tags
+        self.log_area.tag_config("success", foreground="#a6e3a1")
+        self.log_area.tag_config("fail",    foreground="#f38ba8")
+        self.log_area.tag_config("warn",    foreground="#f9e2af")
+        self.log_area.tag_config("info",    foreground="#89b4fa")
+        self.log_area.tag_config("head",    foreground="#cba6f7")
+
+        # ── State ──────────────────────────────────────────────────────────
+        self._stop_requested = False
         self.success_count = 0
-        self.failed_count = 0
-        self.counter_lock = Lock()
+        self.failed_count  = 0
+        self.skipped_count = 0
+        self.failed_ids: list[str] = []
 
-    def log(self, message):
-        self.log_area.insert(tk.END, message + "\n")
+    # ── Logging helpers ────────────────────────────────────────────────────
+
+    def log(self, message: str, tag: str = ""):
+        ts = datetime.now().strftime("%H:%M:%S")
+        line = f"[{ts}] {message}\n"
+        self.log_area.insert(tk.END, line, tag)
         self.log_area.see(tk.END)
 
-    def safe_log(self, message):
-        """Schedule the log update on the main thread."""
-        self.root.after(0, lambda: self.log(message))
+    def safe_log(self, message: str, tag: str = ""):
+        self.root.after(0, lambda m=message, t=tag: self.log(m, t))
 
-    def safe_showinfo(self, title, message):
-        """Schedule the messagebox on the main thread."""
-        self.root.after(0, lambda: messagebox.showinfo(title, message))
+    def safe_set_progress(self, text: str):
+        self.root.after(0, lambda: self.progress_var.set(text))
 
-    def increment_success(self, count):
-        """Thread-safe success counter increment."""
-        with self.counter_lock:
-            self.success_count += count
+    # ── Button callbacks ───────────────────────────────────────────────────
 
-    def increment_failed(self, count):
-        """Thread-safe failed counter increment."""
-        with self.counter_lock:
-            self.failed_count += count
+    def stop_process(self):
+        self._stop_requested = True
+        self.safe_log("⏹ Stop requested — will halt after current player.", "warn")
+        self.stop_button.config(state=tk.DISABLED)
 
     def start_process(self):
         code = self.code_entry.get().strip()
@@ -63,195 +114,223 @@ class GiftRedeemerApp:
             messagebox.showwarning("Input Error", "Please enter a gift code.")
             return
 
-        self.start_button.config(state=tk.DISABLED)
-        # Reset counters
+        self._stop_requested = False
         self.success_count = 0
-        self.failed_count = 0
-        
-        thread = threading.Thread(target=self.run_redemption, args=(code,))
+        self.failed_count  = 0
+        self.skipped_count = 0
+        self.failed_ids    = []
+
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+
+        thread = threading.Thread(target=self.run_redemption, args=(code,), daemon=True)
         thread.start()
 
-    async def process_batch_with_retry(self, page, batch, batch_num, gift_code, max_retries=3):
-        """Process a single batch with retry logic and server response waiting."""
-        task_name = asyncio.current_task().get_name()
-        for attempt in range(max_retries):
-            try:
-                self.safe_log(f"[{task_name}] Processing Batch #{batch_num} (Attempt {attempt + 1}/{max_retries})")
-                
-                # Navigate to the page
-                try:
-                    await page.goto("https://kingshot.net/gift-codes/bulk-redeem", timeout=30000)
-                except Exception as e:
-                    self.safe_log(f"[{task_name}] Batch #{batch_num} - Navigation Error: {str(e)}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(3)
-                        continue
-                    return False
-                
-                # Fill Account IDs
-                ids_text = "\n".join(batch)
-                await page.fill("#account-ids", ids_text)
-                
-                # Fill Gift Code
-                await page.fill("#gift-code", gift_code)
-                
-                # Click Redeem
-                await page.click("button.bg-primary.w-full")
-                
-                # Wait for server response - using a broad selector for any feedback
-                try:
-                    await page.wait_for_selector(
-                        "div.alert, div.notification, div.message, div.toast, div.result, .success, .error, .text-red, .text-green",
-                        timeout=60000,
-                        state="visible"
-                    )
-                    
-                    await asyncio.sleep(2)
-                    
-                    # Check for errors
-                    error_selectors = [".error", ".alert-error", ".text-red", "[class*='error']"]
-                    has_error = False
-                    for selector in error_selectors:
-                        if await page.locator(selector).count() > 0:
-                            if await page.locator(selector).first.is_visible():
-                                error_text = await page.locator(selector).first.text_content(timeout=1000)
-                                if error_text and len(error_text.strip()) > 0:
-                                    self.safe_log(f"[{task_name}] Batch #{batch_num} - Server Error: {error_text[:100]}")
-                                    has_error = True
-                                    break
-                    
-                    if has_error:
-                        if attempt < max_retries - 1:
-                            self.safe_log(f"[{task_name}] Retrying Batch #{batch_num}...")
-                            await asyncio.sleep(3)
-                            continue
-                        else:
-                            self.increment_failed(len(batch))
-                            self.safe_log(f"[{task_name}] Batch #{batch_num} FAILED after {max_retries} attempts")
-                            return False
-                    
-                    # Success!
-                    self.increment_success(len(batch))
-                    self.safe_log(f"[{task_name}] Batch #{batch_num} SUCCESS! ({len(batch)} IDs)")
-                    return True
-                    
-                except PlaywrightTimeoutError:
-                    self.safe_log(f"[{task_name}] Batch #{batch_num} - Server response timeout")
-                    if attempt < max_retries - 1:
-                        self.safe_log(f"[{task_name}] Retrying Batch #{batch_num}...")
-                        await asyncio.sleep(5)
-                        continue
-                    else:
-                        self.increment_failed(len(batch))
-                        self.safe_log(f"[{task_name}] Batch #{batch_num} FAILED - Server timeout")
-                        return False
-                        
-            except Exception as e:
-                self.safe_log(f"[{task_name}] Batch #{batch_num} Error: {str(e)}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(3)
-                    continue
-                else:
-                    self.increment_failed(len(batch))
-                    return False
-        
-        return False
+    # ── Core async logic ───────────────────────────────────────────────────
 
-    async def tab_worker(self, browser, queue, gift_code):
-        """Async worker function for each browser tab."""
-        task_name = asyncio.current_task().get_name()
-        
-        # Create separate context/page for this task
-        context = await browser.new_context()
-        page = await context.new_page()
-        
+    async def redeem_for_player(self, page, player_id: str, gift_code: str) -> str:
+        """
+        Returns one of: 'success', 'not_found', 'already_redeemed', 'error'
+        """
         try:
-            while True:
-                try:
-                    # Get batch from queue (async non-blocking)
-                    batch_data = queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-                
-                batch_num, batch = batch_data
-                await self.process_batch_with_retry(page, batch, batch_num, gift_code)
-                
-                queue.task_done()
-                
-                # Small delay between batches
-                await asyncio.sleep(2)
-                    
-        finally:
-            await page.close()
-            await context.close()
-            self.safe_log(f"[{task_name}] Closed")
+            # 1. Navigate to the redemption page
+            await page.goto(REDEEM_URL, timeout=30000, wait_until="domcontentloaded")
+        except Exception as e:
+            self.safe_log(f"  ✗ [{player_id}] Navigation error: {e}", "fail")
+            return "error"
 
-    async def run_redemption_async(self, gift_code):
-        player_file = "playerid.txt"
-        
+        try:
+            # 2. Fill Player ID
+            player_input = page.locator("input[placeholder*='Player'], input[name*='player'], input[id*='player'], input[type='text']").first
+            await player_input.wait_for(state="visible", timeout=15000)
+            await player_input.fill(player_id)
+        except Exception as e:
+            self.safe_log(f"  ✗ [{player_id}] Could not find Player ID field: {e}", "fail")
+            return "error"
+
+        try:
+            # 3. Click "Lookup Player"
+            lookup_btn = page.get_by_role("button", name="Lookup Player")
+            await lookup_btn.click(timeout=10000)
+        except Exception as e:
+            self.safe_log(f"  ✗ [{player_id}] Lookup button not found: {e}", "fail")
+            return "error"
+
+        # 4. Wait for either a player card or an error message
+        try:
+            await page.wait_for_selector(
+                # Player card appears OR an error element appears
+                "[class*='player'], [class*='result'], [class*='error'], "
+                "[class*='alert'], [class*='not-found'], [class*='invalid']",
+                timeout=20000,
+                state="visible"
+            )
+        except PlaywrightTimeoutError:
+            self.safe_log(f"  ? [{player_id}] No response after lookup — skipping.", "warn")
+            return "not_found"
+
+        # Short pause for the DOM to settle
+        await asyncio.sleep(1)
+
+        # 5. Detect player-not-found state by checking visible error text
+        page_text = (await page.inner_text("body")).lower()
+        not_found_phrases = [
+            "player not found", "no player found", "invalid player",
+            "player does not exist", "could not find", "player id not found"
+        ]
+        if any(p in page_text for p in not_found_phrases):
+            self.safe_log(f"  – [{player_id}] Player not found on server.", "warn")
+            return "not_found"
+
+        # 6. Scroll to the Gift Code section
+        try:
+            gift_section = page.locator("input[placeholder*='gift'], input[id*='gift'], input[name*='gift']").first
+            await gift_section.scroll_into_view_if_needed()
+            await asyncio.sleep(0.5)
+            await gift_section.fill(gift_code)
+        except Exception as e:
+            self.safe_log(f"  ✗ [{player_id}] Gift code field not found: {e}", "fail")
+            return "error"
+
+        try:
+            # 7. Click "Redeem Gift Code"
+            redeem_btn = page.get_by_role("button", name="Redeem Gift Code")
+            await redeem_btn.scroll_into_view_if_needed()
+            await redeem_btn.click(timeout=10000)
+        except Exception as e:
+            self.safe_log(f"  ✗ [{player_id}] Redeem button not found: {e}", "fail")
+            return "error"
+
+        # 8. Wait for result feedback
+        try:
+            await page.wait_for_selector(
+                "[class*='success'], [class*='error'], [class*='alert'], "
+                "[class*='toast'], [class*='notification'], [class*='message']",
+                timeout=30000,
+                state="visible"
+            )
+        except PlaywrightTimeoutError:
+            self.safe_log(f"  ? [{player_id}] No redemption response — treating as unknown.", "warn")
+            return "error"
+
+        await asyncio.sleep(0.8)
+
+        # 9. Parse the result
+        result_text = (await page.inner_text("body")).lower()
+
+        already_phrases = ["already redeemed", "already claimed", "code already used",
+                           "duplicate", "redeemed before"]
+        success_phrases = ["successfully redeemed", "redemption successful", "gift claimed",
+                           "claimed successfully", "redeemed successfully", "success"]
+        error_phrases   = ["invalid code", "expired", "gift code invalid",
+                           "code not found", "incorrect code"]
+
+        if any(p in result_text for p in already_phrases):
+            self.safe_log(f"  ~ [{player_id}] Code already redeemed (skipped).", "warn")
+            return "already_redeemed"
+        elif any(p in result_text for p in success_phrases):
+            return "success"
+        elif any(p in result_text for p in error_phrases):
+            self.safe_log(f"  ✗ [{player_id}] Invalid/expired gift code — halting.", "fail")
+            return "invalid_code"
+        else:
+            # Fallback: assume success if no explicit failure found
+            self.safe_log(f"  ? [{player_id}] Ambiguous response — assuming success.", "warn")
+            return "success"
+
+    async def run_redemption_async(self, gift_code: str):
+        player_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "playerid.txt")
+
         if not os.path.exists(player_file):
-            self.safe_log(f"Error: {player_file} not found!")
+            self.safe_log(f"✗ playerid.txt not found at: {player_file}", "fail")
             return
 
-        try:
-            with open(player_file, "r") as f:
-                ids = [line.strip() for line in f if line.strip()]
-            
-            if not ids:
-                self.safe_log("Error: No IDs found in file.")
-                return
+        with open(player_file, "r") as f:
+            ids = [line.strip() for line in f if line.strip()]
 
-            self.safe_log(f"Found {len(ids)} IDs. Starting parallel batch process...")
-            self.safe_log(f"Using 10 parallel tabs, 3 IDs per batch")
-            self.safe_log("=" * 70)
+        if not ids:
+            self.safe_log("✗ No player IDs found in playerid.txt.", "fail")
+            return
 
-            # Batch IDs into groups of 3
-            batches = [ids[i:i + 3] for i in range(0, len(ids), 3)]
-            self.safe_log(f"Total batches to process: {len(batches)}")
+        total = len(ids)
+        self.safe_log(f"═══════════════════════════════════════════════", "head")
+        self.safe_log(f"  Kingshot Gift Code Redeemer — One-by-One", "head")
+        self.safe_log(f"  Gift Code : {gift_code}", "head")
+        self.safe_log(f"  Players   : {total}", "head")
+        self.safe_log(f"═══════════════════════════════════════════════", "head")
 
-            # Create an asyncio queue
-            queue = asyncio.Queue()
-            for i, batch in enumerate(batches):
-                queue.put_nowait((i + 1, batch))
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context()
+            page    = await context.new_page()
 
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=False)
-                
-                self.safe_log(f"Launching 10 parallel tabs...")
-                
-                tasks = []
-                for i in range(10):
-                    task = asyncio.create_task(self.tab_worker(browser, queue, gift_code))
-                    task.set_name(f"Tab-{i+1}")
-                    tasks.append(task)
-                
-                self.safe_log("All tabs launched! Processing batches...")
-                
-                # Wait for all tasks to complete
-                await asyncio.gather(*tasks)
-                
-                await browser.close()
-            
-            self.safe_log("=" * 70)
-            self.safe_log("REDEMPTION SUMMARY")
-            self.safe_log("=" * 70)
-            self.safe_log(f"Total IDs Processed: {len(ids)}")
-            self.safe_log(f"✓ Successful: {self.success_count}")
-            self.safe_log(f"✗ Failed: {self.failed_count}")
-            self.safe_log("=" * 70)
-            self.safe_showinfo("Completed", f"Redemption process completed!\n\nSuccessful: {self.success_count}\nFailed: {self.failed_count}")
+            for idx, player_id in enumerate(ids, start=1):
+                if self._stop_requested:
+                    self.safe_log("⏹ Stopped by user.", "warn")
+                    break
 
-        except Exception as e:
-            self.safe_log(f"Critical Error: {str(e)}")
-            import traceback
-            self.safe_log(traceback.format_exc())
-            
-    def run_redemption(self, gift_code):
-        """Entry point for the thread to run the async loop."""
+                self.safe_set_progress(f"Processing {idx}/{total} — Player {player_id}")
+                self.safe_log(f"\n[{idx}/{total}] Processing player: {player_id}", "info")
+
+                result = await self.redeem_for_player(page, player_id, gift_code)
+
+                if result == "success":
+                    self.success_count += 1
+                    self.safe_log(f"  ✓ [{player_id}] Redemption SUCCESSFUL.", "success")
+                elif result == "not_found":
+                    self.skipped_count += 1
+                    self.failed_ids.append(player_id)
+                elif result == "already_redeemed":
+                    self.skipped_count += 1
+                elif result == "invalid_code":
+                    # The gift code itself is bad — no point continuing
+                    self.failed_ids.append(player_id)
+                    self.failed_count += 1
+                    break
+                else:  # "error"
+                    self.failed_count += 1
+                    self.failed_ids.append(player_id)
+
+                # Small polite delay between requests
+                await asyncio.sleep(1.5)
+
+            await browser.close()
+
+        # ── Summary ─────────────────────────────────────────────────────
+        self.safe_log(f"\n═══════════════════════════════════════════════", "head")
+        self.safe_log(f"  REDEMPTION SUMMARY", "head")
+        self.safe_log(f"═══════════════════════════════════════════════", "head")
+        self.safe_log(f"  Total Players  : {total}", "info")
+        self.safe_log(f"  ✓ Successful   : {self.success_count}", "success")
+        self.safe_log(f"  ~ Skipped      : {self.skipped_count}", "warn")
+        self.safe_log(f"  ✗ Failed/Error : {self.failed_count}", "fail")
+
+        if self.failed_ids:
+            self.safe_log(f"\n  Player IDs that failed / not found:", "warn")
+            for fid in self.failed_ids:
+                self.safe_log(f"    • {fid}", "warn")
+
+        self.safe_log(f"═══════════════════════════════════════════════", "head")
+
+        self.root.after(0, lambda: messagebox.showinfo(
+            "Redemption Complete",
+            f"Done!\n\n"
+            f"✓ Successful   : {self.success_count}\n"
+            f"~ Skipped      : {self.skipped_count}\n"
+            f"✗ Failed/Error : {self.failed_count}"
+        ))
+
+    def run_redemption(self, gift_code: str):
+        """Entry point for the background thread."""
         try:
             asyncio.run(self.run_redemption_async(gift_code))
+        except Exception as e:
+            self.safe_log(f"Critical error: {e}", "fail")
         finally:
             self.root.after(0, lambda: self.start_button.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_button.config(state=tk.DISABLED))
+            self.safe_set_progress("Ready")
+
 
 if __name__ == "__main__":
     root = tk.Tk()

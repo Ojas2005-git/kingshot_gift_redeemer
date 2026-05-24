@@ -1,22 +1,43 @@
 # Kingshot Gift Redeemer 🎁
 
-An automated gift code redemption tool for Kingshot.net that processes bulk player IDs with a simple GUI interface. No login required, no hassle - just automation!
+An automated gift code redemption tool for Kingshot.net that processes player IDs one-by-one with a simple GUI interface. No login required, no hassle - just automation!
+
+## 🆕 What's New in v2
+
+> **Important:** Kingshot.net has discontinued bulk gift code redemption at the request of Century Games (the Kingshot publisher). Version 2 switches to the new **one-by-one redemption** flow using `https://kingshot.net/gift-codes/redeem`.
+
+| Feature | v1 (Old) | v2 (Current) |
+|---|---|---|
+| Redemption URL | `/gift-codes/bulk-redeem` ❌ (discontinued) | `/gift-codes/redeem` ✅ |
+| Processing style | Parallel batches of 3 IDs | One player at a time |
+| Player lookup | Not required | **Lookup Player** step before redeem |
+| Stop mid-run | ❌ | ✅ Stop button |
+| Outcome categories | Success / Failed | Success / Skipped / Already Redeemed / Error |
+| Failed ID list | ❌ | ✅ Printed in summary |
+| UI theme | Default grey | Dark theme (Catppuccin-inspired) |
+
+---
 
 ## ✨ Features
 
-- **Bulk Redemption**: Process multiple player IDs in batches automatically
-- **User-Friendly GUI**: Simple Tkinter interface for easy operation
-- **Real-Time Logging**: Track redemption progress with detailed logs
-- **Success/Failure Tracking**: Monitor successful and failed redemptions
+- **One-by-One Redemption**: Processes each player ID individually through the official redeem page
+- **Player Lookup Validation**: Automatically checks if a player exists before attempting redemption
+- **Stop Button**: Gracefully halt the run after the current player finishes
+- **Dark UI**: Colour-coded log lines (green = success, red = fail, yellow = warnings/skipped)
+- **Detailed Outcome Tracking**: Tracks Success, Skipped (not found), Already Redeemed, and Error states
+- **Failed ID Report**: Prints all failed/not-found player IDs at the end of the run
 - **Browser Automation**: Uses Playwright for reliable web automation
-- **Batch Processing**: Processes IDs in groups of 3 for optimal performance
 - **No Authentication Required**: Direct redemption without login
+
+---
 
 ## 📋 Prerequisites
 
 - Python 3.7 or higher
-- Windows/Linux/macOS
+- Windows / Linux / macOS
 - Internet connection
+
+---
 
 ## 🚀 Setup Guide
 
@@ -43,33 +64,29 @@ source .venv/bin/activate
 
 ### 3. Install Dependencies
 
-**IMPORTANT:** You must install the dependencies before running the script!
-
 ```bash
 pip install -r requirements.txt
 ```
 
-This will install the `playwright` library required for browser automation.
-
 ### 4. Install Playwright Browsers
-
-After installing the Python package, you **MUST** install the browser binaries:
 
 ```bash
 playwright install chromium
 ```
 
-This will download the Chromium browser that Playwright uses for automation. This step is required and cannot be skipped!
+This downloads the Chromium browser used for automation. This step is **required** and cannot be skipped.
 
 ### 5. Prepare Player IDs
 
-Create or edit the `playerid.txt` file and add your player IDs (one per line):
+Edit `playerid.txt` and add your player IDs — one per line:
 
 ```
 86508749
 87491467
 84100109
 ```
+
+---
 
 ## 📖 Usage
 
@@ -85,260 +102,191 @@ Create or edit the `playerid.txt` file and add your player IDs (one per line):
    ```
 
 3. **Use the GUI**:
-   - Enter the gift code in the text field
-   - Click "Start Redemption" button
-   - Watch the progress in the log area
-   - Wait for the completion message
+   - Enter the gift code in the **Gift Code** field
+   - Click **▶ Start Redemption**
+   - Watch colour-coded progress in the log area
+   - Use **⏹ Stop** at any time to pause after the current player
+   - A summary popup appears when all IDs have been processed
 
-### How It Works
+### How It Works (v2 Flow)
 
-1. The application reads all player IDs from `playerid.txt`
-2. IDs are grouped into batches of 3
-3. For each batch:
-   - Opens the Kingshot bulk redemption page
-   - Fills in the player IDs
-   - Enters the gift code
-   - Clicks the redeem button
-   - Waits 8 seconds before processing the next batch
-4. Displays a summary with success/failure counts
+For **each** player ID in `playerid.txt`, the script:
+
+1. Opens `https://kingshot.net/gift-codes/redeem`
+2. Fills in the **Player ID** field and clicks **Lookup Player**
+3. Checks the result:
+   - **Player not found** → logs as Skipped, moves to the next ID
+   - **Player found** → scrolls to the Gift Code section
+4. Fills in the **Gift Code** and clicks **Redeem Gift Code**
+5. Parses the server response and logs the outcome
+6. Waits 1.5 seconds before moving to the next player
+
+---
 
 ## 📁 Project Structure
 
 ```
 kingshot_gift_redeemer/
-├── gift_redeemer.py      # Main application script
+├── gift_redeemer.py      # Main application script (v2)
 ├── playerid.txt          # Player IDs (one per line)
 ├── requirements.txt      # Python dependencies
-├── README.md            # This file
-└── .gitignore           # Git ignore rules
+├── README.md             # This file
+└── .gitignore            # Git ignore rules
 ```
+
+---
 
 ## 🛠️ Technical Details
 
 ### Dependencies
 
-- **playwright**: Browser automation library for web scraping and interaction
+- **playwright**: Browser automation library
 - **tkinter**: Built-in Python GUI library (no installation needed)
 
 ### Key Components
 
-- **GiftRedeemerApp**: Main GUI application class
-- **Threading**: Prevents UI freezing during redemption process
-- **Playwright**: Handles browser automation and web interaction
-- **Batch Processing**: Optimizes redemption with configurable batch sizes
+| Component | Description |
+|---|---|
+| `GiftRedeemerApp` | Main GUI class — manages UI state and background thread |
+| `redeem_for_player()` | Async function handling the full lookup + redeem flow for one player |
+| `run_redemption_async()` | Orchestrates sequential processing of all player IDs |
+| `run_redemption()` | Thread entry point — runs the async loop without blocking the UI |
+
+### Outcome States
+
+| State | Meaning |
+|---|---|
+| ✅ `success` | Gift code redeemed successfully |
+| `~` `not_found` | Player ID not found on server (ID listed in summary) |
+| `~` `already_redeemed` | Code was already claimed for this player |
+| ✗ `error` | Page/network issue (ID listed in summary) |
+| ✗ `invalid_code` | Gift code is invalid/expired — **run stops immediately** |
+
+---
 
 ## ⚠️ Important Notes
 
-- The script processes IDs in batches of 3 (configurable in code, line 72)
-- An 8-second delay is added between batches to avoid rate limiting
-- The browser runs in non-headless mode so you can see the automation
-- Make sure `playerid.txt` exists and contains valid player IDs
-- Internet connection is required for the redemption process
+- A **1.5-second delay** is added between each player to avoid rate limiting
+- The browser runs in **non-headless mode** so you can watch the automation live
+- If the gift code is **invalid or expired**, the run stops early to avoid wasted requests
+- Player IDs that don't exist on the server are **skipped** and listed in the final summary
+- Make sure `playerid.txt` exists in the same directory as `gift_redeemer.py`
+
+---
+
+## 📊 Example Output (v2)
+
+```
+═══════════════════════════════════════════════
+  Kingshot Gift Code Redeemer — One-by-One
+  Gift Code : EXAMPLE123
+  Players   : 103
+═══════════════════════════════════════════════
+
+[1/103] Processing player: 86508749
+  ✓ [86508749] Redemption SUCCESSFUL.
+
+[2/103] Processing player: 87491467
+  – [87491467] Player not found on server.
+
+[3/103] Processing player: 84100109
+  ~ [84100109] Code already redeemed (skipped).
+
+...
+
+═══════════════════════════════════════════════
+  REDEMPTION SUMMARY
+═══════════════════════════════════════════════
+  Total Players  : 103
+  ✓ Successful   : 98
+  ~ Skipped      : 4
+  ✗ Failed/Error : 1
+
+  Player IDs that failed / not found:
+    • 87491467
+    • 84100109
+    • ...
+═══════════════════════════════════════════════
+```
+
+---
 
 ## 🐛 Troubleshooting
-
-### Virtual Environment Issues
-
-If you can't activate the virtual environment:
-- **Windows**: Try `python -m venv .venv` again
-- **Linux/macOS**: Ensure you have `python3-venv` installed
 
 ### Playwright Browser Installation Errors
 
 **Error: `playwright install chromium` fails or browser not found**
 
-#### For All Platforms:
-First, ensure playwright is installed:
+First verify playwright is installed:
 ```bash
 pip list | grep playwright
 ```
 
-If not installed, run:
+If missing:
 ```bash
 pip install -r requirements.txt
-```
-
-Then try installing browsers again:
-```bash
 playwright install chromium
 ```
 
-#### Linux-Specific Issues:
+#### Linux-Specific Issues
 
-**1. Permission Denied Error:**
+**Missing System Dependencies (Ubuntu/Debian):**
 ```bash
-# Try with user permissions (recommended)
-playwright install chromium
-
-# If that fails, you may need sudo (use cautiously)
-sudo playwright install chromium
-```
-
-**2. Missing System Dependencies:**
-Ubuntu/Debian users may need additional libraries:
-```bash
-# Install required system dependencies
 sudo apt-get update
 sudo apt-get install -y \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libdbus-1-3 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 libdbus-1-3 libxkbcommon0 \
+    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    libgbm1 libpango-1.0-0 libcairo2 libasound2
 
-# Then install chromium
 playwright install chromium
 ```
 
-For Fedora/RHEL/CentOS:
+**Fedora/RHEL/CentOS:**
 ```bash
-sudo dnf install -y \
-    nss \
-    nspr \
-    atk \
-    at-spi2-atk \
-    cups-libs \
-    libdrm \
-    dbus-libs \
-    libxkbcommon \
-    libXcomposite \
-    libXdamage \
-    libXfixes \
-    libXrandr \
-    mesa-libgbm \
-    pango \
-    cairo \
-    alsa-lib
+sudo dnf install -y nss nspr atk at-spi2-atk cups-libs libdrm \
+    dbus-libs libxkbcommon libXcomposite libXdamage libXfixes \
+    libXrandr mesa-libgbm pango cairo alsa-lib
 
 playwright install chromium
 ```
 
-**3. Command Not Found:**
-If `playwright` command is not found, use the Python module directly:
+**Command Not Found:**
 ```bash
 python -m playwright install chromium
-# OR
-python3 -m playwright install chromium
 ```
 
-#### macOS-Specific Issues:
+#### macOS-Specific Issues
 
-**1. Command Not Found:**
-Use the Python module directly:
+**Security/Quarantine Issues:**
 ```bash
 python3 -m playwright install chromium
+xattr -cr ~/Library/Caches/ms-playwright/   # if blocked by macOS security
 ```
 
-**2. Security/Quarantine Issues:**
-macOS may block the browser. If you see security warnings:
+**Apple Silicon (M1/M2/M3):**
 ```bash
-# Install chromium
-python3 -m playwright install chromium
-
-# If blocked, allow it in System Preferences > Security & Privacy
-# Or use this command to remove quarantine attribute:
-xattr -cr ~/Library/Caches/ms-playwright/
-```
-
-**3. Rosetta 2 Required (Apple Silicon M1/M2/M3):**
-If you're on Apple Silicon and get architecture errors:
-```bash
-# Install Rosetta 2 if not already installed
 softwareupdate --install-rosetta
-
-# Then install chromium
 python3 -m playwright install chromium
-```
-
-#### Verification:
-
-After installation, verify it worked:
-```bash
-# Check installed browsers
-playwright install --help
-
-# Or verify programmatically
-python -c "from playwright.sync_api import sync_playwright; print('✓ Playwright ready!')"
 ```
 
 ### Module Not Found Errors
 
-**Error: `ModuleNotFoundError: No module named 'playwright'`**
+**`ModuleNotFoundError: No module named 'playwright'`**
 
-This means you haven't installed the dependencies yet. Follow these steps:
-
-1. **Ensure virtual environment is activated**:
-   - Windows: You should see `(.venv)` at the start of your command prompt
-   - Linux/macOS: You should see `(.venv)` in your terminal prompt
-
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Install Playwright browsers**:
-   ```bash
-   playwright install chromium
-   ```
-
-4. **Verify installation**:
-   ```bash
-   pip list | grep playwright
-   ```
-   You should see `playwright` in the output.
-
-If you still get errors, try:
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt --force-reinstall
-```
+1. Ensure the virtual environment is active (`(.venv)` visible in your prompt)
+2. Run: `pip install -r requirements.txt`
+3. Run: `playwright install chromium`
+4. Verify: `pip list | grep playwright`
 
 ### File Not Found: playerid.txt
 
-Create the file in the same directory as `gift_redeemer.py`:
 ```bash
-touch playerid.txt  # Linux/macOS
-type nul > playerid.txt  # Windows
+touch playerid.txt          # Linux/macOS
+type nul > playerid.txt     # Windows
 ```
 
-## 📊 Example Output
-
-```
-Found 102 IDs. Starting batch process...
-Processing Batch 1/34 (3 IDs)...
-Batch 1 Submitted Successfully! (3 IDs)
-Current Stats - Success: 3, Failed: 0
-Processing Batch 2/34 (3 IDs)...
-Batch 2 Submitted Successfully! (3 IDs)
-Current Stats - Success: 6, Failed: 0
-...
-==================================================
-REDEMPTION SUMMARY
-==================================================
-Total IDs Processed: 102
-✓ Successful: 102
-✗ Failed: 0
-==================================================
-```
-
-## 📝 License
-
-This project is open source and available for personal use.
-
-## 🤝 Contributing
-
-Feel free to fork this repository and submit pull requests for improvements!
+---
 
 ## ⚡ Quick Start Summary
 
@@ -349,19 +297,29 @@ cd kingshot_gift_redeemer
 
 # 2. Setup virtual environment
 python -m venv .venv
-.venv\Scripts\activate  # Windows
+.venv\Scripts\activate       # Windows
 # OR
-source .venv/bin/activate  # Linux/macOS
+source .venv/bin/activate    # Linux/macOS
 
 # 3. Install dependencies
 pip install -r requirements.txt
 playwright install chromium
 
-# 4. Add player IDs to playerid.txt
+# 4. Add player IDs to playerid.txt (one per line)
 
 # 5. Run the application
 python gift_redeemer.py
 ```
+
+---
+
+## 📝 License
+
+This project is open source and available for personal use.
+
+## 🤝 Contributing
+
+Feel free to fork this repository and submit pull requests for improvements!
 
 ---
 
