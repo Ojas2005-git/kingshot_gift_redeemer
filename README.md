@@ -1,32 +1,34 @@
 # Kingshot Gift Redeemer 🎁
 
-An automated gift code redemption tool for Kingshot.net that processes player IDs one-by-one with a simple GUI interface. No login required, no hassle - just automation!
+An automated gift code redemption tool for Kingshot.net that processes player IDs in parallel across 4 browser tabs inside a single browser window. No login required, no hassle - just automation!
 
 ## 🆕 What's New in v2
 
-> **Important:** Kingshot.net has discontinued bulk gift code redemption at the request of Century Games (the Kingshot publisher). Version 2 switches to the new **one-by-one redemption** flow using `https://kingshot.net/gift-codes/redeem`.
+> **Important:** Kingshot.net has discontinued bulk gift code redemption at the request of Century Games (the Kingshot publisher). Version 2 switches to the new **one-by-one redemption** flow using `https://kingshot.net/gift-codes/redeem`, running across **4 parallel browser tabs** inside a single browser window.
 
 | Feature | v1 (Old) | v2 (Current) |
 |---|---|---|
 | Redemption URL | `/gift-codes/bulk-redeem` ❌ (discontinued) | `/gift-codes/redeem` ✅ |
-| Processing style | Parallel batches of 3 IDs | One player at a time |
+| Processing style | Parallel batches of 3 IDs | 4 tabs in one browser, each processing its chunk in parallel |
 | Player lookup | Not required | **Lookup Player** step before redeem |
-| Stop mid-run | ❌ | ✅ Stop button |
+| Browser windows | Up to 10 separate windows | **1 browser window, 4 tabs** |
+| Stop mid-run | ❌ | ✅ Stop button (halts all tabs after current player) |
 | Outcome categories | Success / Failed | Success / Skipped / Already Redeemed / Error |
-| Failed ID list | ❌ | ✅ Printed in summary |
-| UI theme | Default grey | Dark theme (Catppuccin-inspired) |
+| Failed ID list | ❌ | ✅ Printed in per-tab and overall summary |
+| UI theme | Default grey | Dark theme with 4-tab notebook (Catppuccin-inspired) |
 
 ---
 
 ## ✨ Features
 
-- **One-by-One Redemption**: Processes each player ID individually through the official redeem page
+- **4-Tab Parallel Processing**: Splits player IDs across 4 browser tabs in a single browser window — ~4× faster than sequential
+- **Smart ID Splitting**: First 3 tabs get equal shares; Tab 4 always absorbs any remainder (odd counts handled automatically)
 - **Player Lookup Validation**: Automatically checks if a player exists before attempting redemption
-- **Stop Button**: Gracefully halt the run after the current player finishes
-- **Dark UI**: Colour-coded log lines (green = success, red = fail, yellow = warnings/skipped)
-- **Detailed Outcome Tracking**: Tracks Success, Skipped (not found), Already Redeemed, and Error states
-- **Failed ID Report**: Prints all failed/not-found player IDs at the end of the run
-- **Browser Automation**: Uses Playwright for reliable web automation
+- **Stop Button**: Gracefully halts all 4 tabs after their current player finishes
+- **Per-Tab Live Logs**: Each tab has its own colour-coded log panel in the GUI notebook
+- **Detailed Outcome Tracking**: Tracks Success, Skipped (not found), Already Redeemed, and Error per tab and overall
+- **Failed ID Report**: Prints all failed/not-found player IDs at the end of each tab and in the combined summary
+- **Browser Automation**: Uses Playwright — one browser, one context, 4 pages
 - **No Authentication Required**: Direct redemption without login
 
 ---
@@ -110,16 +112,28 @@ Edit `playerid.txt` and add your player IDs — one per line:
 
 ### How It Works (v2 Flow)
 
-For **each** player ID in `playerid.txt`, the script:
+On **Start**, the script:
 
-1. Opens `https://kingshot.net/gift-codes/redeem`
-2. Fills in the **Player ID** field and clicks **Lookup Player**
-3. Checks the result:
-   - **Player not found** → logs as Skipped, moves to the next ID
-   - **Player found** → scrolls to the Gift Code section
-4. Fills in the **Gift Code** and clicks **Redeem Gift Code**
-5. Parses the server response and logs the outcome
-6. Waits 1.5 seconds before moving to the next player
+1. Reads all player IDs from `playerid.txt`
+2. Splits them into **4 chunks** — first 3 tabs get `floor(total ÷ 4)` IDs each, Tab 4 gets the rest
+3. Launches **one Chromium browser window** with **4 tabs** opened simultaneously
+4. All 4 tabs run in parallel via `asyncio.gather`. For each player ID in its chunk, a tab:
+   - Opens `https://kingshot.net/gift-codes/redeem`
+   - Fills in the **Player ID** and clicks **Lookup Player**
+   - If player not found → logs as Skipped, moves to next ID
+   - If player found → fills the **Gift Code** and clicks **Redeem Gift Code**
+   - Parses the server response and logs the outcome
+   - Waits 1.5 seconds before the next player
+5. When all 4 tabs finish, a combined summary is shown
+
+**Example split for 103 player IDs:**
+
+| Tab | Player IDs assigned |
+|-----|---------------------|
+| Tab 1 | 25 (IDs #1–25) |
+| Tab 2 | 25 (IDs #26–50) |
+| Tab 3 | 25 (IDs #51–75) |
+| Tab 4 | **28** (IDs #76–103, absorbs remainder) |
 
 ---
 
@@ -148,8 +162,9 @@ kingshot_gift_redeemer/
 | Component | Description |
 |---|---|
 | `GiftRedeemerApp` | Main GUI class — manages UI state and background thread |
-| `redeem_for_player()` | Async function handling the full lookup + redeem flow for one player |
-| `run_redemption_async()` | Orchestrates sequential processing of all player IDs |
+| `redeem_for_player()` | Async function handling the full lookup + redeem flow for one player on a given page |
+| `tab_worker()` | Async task for one browser tab — iterates over its chunk of player IDs |
+| `run_redemption_async()` | Orchestrator — splits IDs, opens 1 browser + 4 pages, launches 4 parallel `tab_worker` tasks |
 | `run_redemption()` | Thread entry point — runs the async loop without blocking the UI |
 
 ### Outcome States
@@ -166,47 +181,54 @@ kingshot_gift_redeemer/
 
 ## ⚠️ Important Notes
 
-- A **1.5-second delay** is added between each player to avoid rate limiting
-- The browser runs in **non-headless mode** so you can watch the automation live
-- If the gift code is **invalid or expired**, the run stops early to avoid wasted requests
+- **One browser window** opens with **4 tabs** — all tabs are visible and run simultaneously
+- A **1.5-second delay** is added between each player *per tab* to avoid rate limiting
+- If the gift code is **invalid or expired**, the affected tab stops early — other tabs continue
 - Player IDs that don't exist on the server are **skipped** and listed in the final summary
+- Tab 4 always receives any remainder IDs (e.g. for 103 IDs: Tab 4 gets 28, others get 25 each)
 - Make sure `playerid.txt` exists in the same directory as `gift_redeemer.py`
 
 ---
 
 ## 📊 Example Output (v2)
 
+Each of the 4 GUI tabs shows its own live log. Example from **Tab 1**:
+
 ```
-═══════════════════════════════════════════════
-  Kingshot Gift Code Redeemer — One-by-One
-  Gift Code : EXAMPLE123
-  Players   : 103
-═══════════════════════════════════════════════
+═══ Tab 1 ═══  (25 players)
+Assigned 25 players  (IDs #1–25)
 
-[1/103] Processing player: 86508749
-  ✓ [86508749] Redemption SUCCESSFUL.
+[1/25] Processing: 86508749
+  ✓ [86508749] SUCCESSFUL.
 
-[2/103] Processing player: 87491467
+[2/25] Processing: 87491467
   – [87491467] Player not found on server.
 
-[3/103] Processing player: 84100109
+[3/25] Processing: 84100109
   ~ [84100109] Code already redeemed (skipped).
 
 ...
 
-═══════════════════════════════════════════════
-  REDEMPTION SUMMARY
-═══════════════════════════════════════════════
+── Tab Summary ──
+  ✓ Success : 22
+  ~ Skipped : 2
+  ✗ Failed  : 1
+```
+
+At the end, the **overall summary** is appended to all 4 tabs:
+
+```
+═══════════════  OVERALL SUMMARY  ═══════════════
   Total Players  : 103
-  ✓ Successful   : 98
-  ~ Skipped      : 4
-  ✗ Failed/Error : 1
+  ✓ Successful   : 90
+  ~ Skipped      : 10
+  ✗ Failed/Error : 3
 
   Player IDs that failed / not found:
     • 87491467
     • 84100109
     • ...
-═══════════════════════════════════════════════
+══════════════════════════════════════════════════
 ```
 
 ---
